@@ -28,20 +28,20 @@ cube_half = cube_length / 2
 
 trans_offset = {  # tag frame → cube-COM translation (metres)
     0: np.array([0.000000, 0.000000, -0.025000]),
-    1: np.array([0.001486, 0.000056, -0.024291]),
-    2: np.array([0.002980, -0.000149, -0.020411]),
-    3: np.array([-0.009713, -0.000890, -0.030693]),
-    4: np.array([0.000516, 0.003160, -0.024248]),
-    5: np.array([0.002193, 0.006734, -0.031516]),
+    1: np.array([0.000230, 0.002016, -0.022938]),
+    2: np.array([0.001864, -0.002060, -0.026846]),
+    3: np.array([-0.002330, -0.001997, -0.025706]),
+    4: np.array([-0.000280, 0.002189, -0.018617]),
+    5: np.array([0.000259, 0.003560, -0.023690]),
 }
 
 rot_offset = {
     0: np.eye(3),
-    1: R.from_euler('xyz', [-179.7, 15.8, -178.7], degrees=True).as_matrix(),
-    2: R.from_euler('xyz', [177.4, -83.7, -176.6], degrees=True).as_matrix(),
-    3: R.from_euler('xyz', [178.6, 79.8, 178.7], degrees=True).as_matrix(),
-    4: R.from_euler('xyz', [93.2, 6.0, -3.7], degrees=True).as_matrix(),
-    5: R.from_euler('xyz', [-95.6, 5.6, -177.9], degrees=True).as_matrix(),
+    1: R.from_euler('xyz', [-167.2, -1.0, 178.2], degrees=True).as_matrix(),
+    2: R.from_euler('xyz', [-111.7, -83.6, 115.4], degrees=True).as_matrix(),
+    3: R.from_euler('xyz', [-117.4, 83.4, -121.2], degrees=True).as_matrix(),
+    4: R.from_euler('xyz', [94.6, -1.8, 1.2], degrees=True).as_matrix(),
+    5: R.from_euler('xyz', [-98.1, 0.2, 179.2], degrees=True).as_matrix(),
 }
 
 

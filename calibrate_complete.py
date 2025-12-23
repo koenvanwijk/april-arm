@@ -27,12 +27,13 @@ print("=" * 70)
 print()
 print("Show the cube with MULTIPLE tags visible.")
 print("Move it around to different angles.")
-print("Collect 50+ frames with 2+ tags visible.")
+print("Frames with 2+ tags are automatically captured.")
+print("Collect 50+ frames, then compute offsets.")
 print()
 print("Controls:")
-print("  SPACE = Capture frame")
 print("  C     = Compute offsets")
 print("  S     = Save and update april.py")
+print("  R     = Reset/clear observations")
 print("  Q/ESC = Quit")
 print("=" * 70)
 
@@ -62,8 +63,19 @@ def compute_offsets_optimized(observations):
         print("Need at least 2 different tags")
         return None, None
     
+    # Force tag 0 to be in the list as reference
+    if 0 not in all_tids:
+        print("⚠️  Tag 0 must be visible for reference!")
+        return None, None
+    
+    # Reorder so tag 0 is first
+    if all_tids[0] != 0:
+        all_tids.remove(0)
+        all_tids = [0] + all_tids
+    
     print(f"\nOptimizing for tags: {all_tids}")
     print(f"Using {len(observations)} observations")
+    print(f"Reference: Tag 0 = identity")
     
     # Initial guess: tag 0 is identity, others need to be found
     # Each tag has: 3 rotation params + 3 translation params = 6 params
@@ -71,18 +83,32 @@ def compute_offsets_optimized(observations):
     n_tags = len(all_tids)
     n_params = (n_tags - 1) * 6  # Tag 0 is fixed
     
-    # Initial guess for other tags
+    # Initial guess for other tags - use simple rotations
+    # Tags typically on cube faces: 0°, 90°, 180°, 270° rotations
     x0 = []
-    for tid in all_tids[1:]:  # Skip tag 0
-        x0.extend([0, 0, 0])  # rotation
+    for i, tid in enumerate(all_tids[1:]):  # Skip tag 0
+        # Start with assumption of 90° rotations between faces
+        if tid == 1:  # Opposite face: 180° around X
+            x0.extend([np.pi, 0, 0])
+        elif tid == 2:  # Right face: 90° around Y
+            x0.extend([0, np.pi/2, 0])
+        elif tid == 3:  # Left face: -90° around Y
+            x0.extend([0, -np.pi/2, 0])
+        elif tid == 4:  # Top face: 90° around X
+            x0.extend([np.pi/2, 0, 0])
+        elif tid == 5:  # Bottom face: -90° around X
+            x0.extend([-np.pi/2, 0, 0])
+        else:
+            x0.extend([0, 0, 0])
+        
         x0.extend([0, 0, -0.025])  # translation
     
     x0 = np.array(x0)
     
     def unpack_params(x):
         """Convert flat parameter vector to rot_offset and trans_offset dicts."""
-        rot_offset = {all_tids[0]: np.eye(3)}
-        trans_offset = {all_tids[0]: np.array([0, 0, -0.025])}
+        rot_offset = {0: np.eye(3)}
+        trans_offset = {0: np.array([0, 0, -0.025])}
         
         idx = 0
         for tid in all_tids[1:]:
@@ -236,6 +262,8 @@ detector = cv2.aruco.ArucoDetector(
 
 computed_rot = None
 computed_trans = None
+frame_skip = 0  # Skip frames to avoid too many similar frames
+CAPTURE_EVERY_N = 5  # Capture every Nth frame when tags visible
 
 while True:
     ret, frame = cap.read()
@@ -247,15 +275,32 @@ while True:
     
     h, w = frame.shape[:2]
     
+    # Auto-capture frames with 2+ good tags
+    auto_captured = False
+    if ids is not None and len(ids) >= 2:
+        frame_skip += 1
+        if frame_skip >= CAPTURE_EVERY_N:
+            frame_skip = 0
+            
+            # Build frame data
+            frame_data = {}
+            for corner, id_arr in zip(corners, ids):
+                tid = int(id_arr[0])
+                rvec, tvec, _ = estimate_pose([corner], MARKER_SIZE, mtx, dist)
+                frame_data[tid] = (tvec[0].flatten(), rvec[0])
+            
+            observations.append(frame_data)
+            auto_captured = True
+    
     if ids is not None:
         n_tags = len(ids)
         cv2.aruco.drawDetectedMarkers(frame, corners, ids)
         
         if n_tags >= 2:
-            color = (0, 255, 0)
-            msg = f"{n_tags} tags visible - SPACE to capture"
+            color = (0, 255, 0) if auto_captured else (0, 255, 255)
+            msg = f"{n_tags} tags visible" + (" - CAPTURED" if auto_captured else "")
         else:
-            color = (0, 255, 255)
+            color = (150, 150, 150)
             msg = f"Only {n_tags} tag - need 2+"
         
         cv2.putText(frame, msg, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
@@ -273,25 +318,18 @@ while True:
         cv2.putText(frame, "Offsets computed! Press S to save", 
                    (10, h-50), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
     
-    cv2.putText(frame, "SPACE=Capture | C=Compute | S=Save | Q=Quit", 
+    cv2.putText(frame, "C=Compute | S=Save | R=Reset | Q=Quit", 
                (10, h-20), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
     
     cv2.imshow("Complete Calibration", frame)
     
     key = cv2.waitKey(1) & 0xFF
     
-    if key == ord(' '):
-        if ids is not None and len(ids) >= 2:
-            frame_data = {}
-            for corner, id_arr in zip(corners, ids):
-                tid = int(id_arr[0])
-                rvec, tvec, _ = estimate_pose([corner], MARKER_SIZE, mtx, dist)
-                frame_data[tid] = (tvec[0].flatten(), rvec[0])
-            
-            observations.append(frame_data)
-            print(f"✓ Captured frame {len(observations)} with {len(frame_data)} tags")
-        else:
-            print("⚠️  Need 2+ tags visible")
+    if key == ord('r') or key == ord('R'):
+        observations = []
+        computed_rot = None
+        computed_trans = None
+        print("\n🔄 Reset observations")
     
     elif key == ord('c') or key == ord('C'):
         if len(observations) >= 20:
