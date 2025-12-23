@@ -15,6 +15,8 @@ from scipy.spatial.transform import Rotation as R
 TAG_FAMILY = cv2.aruco.DICT_APRILTAG_16h5
 MARKER_SIZE = 0.046  # 30 mm
 CAM_ID = 0
+STEREO_CAM = "/dev/videostereo"  # Stereo camera device path (or None to disable)
+USE_STEREO = True  # Set to True to enable stereo camera
 
 # Camera pose relative to world frame (camera positioned behind robot)
 # Camera behind robot looking forward, slightly angled down
@@ -28,20 +30,22 @@ cube_half = cube_length / 2
 
 trans_offset = {  # tag frame → cube-COM translation (metres)
     0: np.array([0.000000, 0.000000, -0.025000]),
-    1: np.array([0.000230, 0.002016, -0.022938]),
-    2: np.array([0.001864, -0.002060, -0.026846]),
-    3: np.array([-0.002330, -0.001997, -0.025706]),
-    4: np.array([-0.000280, 0.002189, -0.018617]),
-    5: np.array([0.000259, 0.003560, -0.023690]),
+    1: np.array([-37.395703, 20.152624, -5.217822]),
+    2: np.array([-35.030576, 20.115699, -7.763626]),
+    3: np.array([-12.800653, 9.774754, 3.084363]),
+    4: np.array([41.606726, 18.551721, 58.843548]),
+    5: np.array([2.350093, 3.375557, 0.579613]),
+    11: np.array([-37.025406, 21.960669, -29.860303]),
 }
 
 rot_offset = {
     0: np.eye(3),
-    1: R.from_euler('xyz', [-167.2, -1.0, 178.2], degrees=True).as_matrix(),
-    2: R.from_euler('xyz', [-111.7, -83.6, 115.4], degrees=True).as_matrix(),
-    3: R.from_euler('xyz', [-117.4, 83.4, -121.2], degrees=True).as_matrix(),
-    4: R.from_euler('xyz', [94.6, -1.8, 1.2], degrees=True).as_matrix(),
-    5: R.from_euler('xyz', [-98.1, 0.2, 179.2], degrees=True).as_matrix(),
+    1: R.from_euler('xyz', [57.4, -23.4, 33.1], degrees=True).as_matrix(),
+    2: R.from_euler('xyz', [20.8, 18.9, 19.4], degrees=True).as_matrix(),
+    3: R.from_euler('xyz', [-108.3, 81.5, -125.9], degrees=True).as_matrix(),
+    4: R.from_euler('xyz', [94.6, 24.1, -28.2], degrees=True).as_matrix(),
+    5: R.from_euler('xyz', [-31.2, 63.0, -138.1], degrees=True).as_matrix(),
+    11: R.from_euler('xyz', [-101.4, 7.9, -106.4], degrees=True).as_matrix(),
 }
 
 
@@ -189,14 +193,66 @@ def detect_and_draw(
 def vision_loop(q: Queue | None, calib="calib.npz"):
     data = np.load(calib)
     K, D = data["mtx"], data["dist"]
-    cap = cv2.VideoCapture(CAM_ID)
+    
+    # Open camera(s)
+    if USE_STEREO and STEREO_CAM:
+        # Try stereo camera first
+        cap = cv2.VideoCapture(STEREO_CAM)
+        if not cap.isOpened():
+            print(f"⚠️  Stereo camera {STEREO_CAM} not found, falling back to CAM_ID={CAM_ID}")
+            cap = cv2.VideoCapture(CAM_ID)
+        else:
+            print(f"✓ Using stereo camera: {STEREO_CAM}")
+            # Set MJPEG compression for better framerate
+            cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc('M', 'J', 'P', 'G'))
+            # Set stereo resolution (2x width for side-by-side)
+            cap.set(cv2.CAP_PROP_FRAME_WIDTH, 2560)
+            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
+            cap.set(cv2.CAP_PROP_FPS, 30)
+            actual_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+            actual_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            actual_fps = int(cap.get(cv2.CAP_PROP_FPS))
+            print(f"  Resolution: {actual_w}x{actual_h} @ {actual_fps}fps")
+    else:
+        cap = cv2.VideoCapture(CAM_ID)
+    
     if not cap.isOpened():
         sys.exit("No webcam")
 
     prev_pos: npt.NDArray[np.float64] | None = None
     while True:
         _, frame = cap.read()
-        (frame, pose) = detect_and_draw(frame, K, D)
+        
+        # Split stereo frame if enabled
+        if USE_STEREO and STEREO_CAM:
+            h, w = frame.shape[:2]
+            mid = w // 2
+            frame_left = frame[:, :mid]
+            frame_right = frame[:, mid:]
+            
+            # Detect on both frames
+            frame_left_vis, pose_left = detect_and_draw(frame_left, K, D)
+            frame_right_vis, pose_right = detect_and_draw(frame_right, K, D)
+            
+            # Combine visualizations side-by-side
+            frame = np.hstack([frame_left_vis, frame_right_vis])
+            
+            # Choose best pose: prefer pose with more detections, or average if both valid
+            if pose_left is not None and pose_right is not None:
+                # Average poses from both cameras
+                pose_pos = (pose_left.pos + pose_right.pos) / 2
+                # For rotation, use left camera (could be improved with proper quaternion averaging)
+                pose = Pose(pose_pos, pose_left.quat)
+            elif pose_left is not None:
+                pose = pose_left
+            elif pose_right is not None:
+                pose = pose_right
+            else:
+                pose = None
+        else:
+            # Single camera mode
+            (frame, pose) = detect_and_draw(frame, K, D)
+        
         if q is not None:
             if pose is not None:
                 if prev_pos is not None:
