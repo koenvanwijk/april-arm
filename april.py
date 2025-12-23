@@ -27,23 +27,24 @@ cube_length = 0.05
 cube_half = cube_length / 2
 
 trans_offset = {  # tag frame → cube-COM translation (metres)
-    0: np.array([0, 0, -cube_half]),
-    1: np.array([0, 0, -cube_half]),
-    2: np.array([0, 0, -cube_half]),
-    3: np.array([0, 0, -cube_half]),
-    4: np.array([0, 0, -cube_half]),
-    5: np.array([0, 0, -cube_half]),
+    0: np.array([0.000000, 0.000000, -0.025000]),
+    1: np.array([0.001486, 0.000056, -0.024291]),
+    2: np.array([0.002980, -0.000149, -0.020411]),
+    3: np.array([-0.009713, -0.000890, -0.030693]),
+    4: np.array([0.000516, 0.003160, -0.024248]),
+    5: np.array([0.002193, 0.006734, -0.031516]),
 }
+
 rot_offset = {
     0: np.eye(3),
-    1: np.eye(3),
-    2: R.from_euler("x", 90, degrees=True).as_matrix()
-    @ R.from_euler("z", 180, degrees=True).as_matrix(),
-    3: R.from_euler("x", 90, degrees=True).as_matrix(),
-    4: R.from_euler("x", 90, degrees=True).as_matrix()
-    @ R.from_euler("z", 90, degrees=True).as_matrix(),
-    5: R.from_euler("x", 90, degrees=True).as_matrix(),
+    1: R.from_euler('xyz', [-179.7, 15.8, -178.7], degrees=True).as_matrix(),
+    2: R.from_euler('xyz', [177.4, -83.7, -176.6], degrees=True).as_matrix(),
+    3: R.from_euler('xyz', [178.6, 79.8, 178.7], degrees=True).as_matrix(),
+    4: R.from_euler('xyz', [93.2, 6.0, -3.7], degrees=True).as_matrix(),
+    5: R.from_euler('xyz', [-95.6, 5.6, -177.9], degrees=True).as_matrix(),
 }
+
+
 
 
 def estimate_pose(corners, marker_size, mtx, distortion):
@@ -156,8 +157,14 @@ def detect_and_draw(
 
         # tag frame → cube COM
         R_tag, _ = cv2.Rodrigues(r_s)
-        com_pos = t_s + R_tag @ offT
+        # First apply rotation correction to get cube orientation
         com_rot = R_tag @ offR
+        # Translation: tag position + rotation-corrected offset
+        # offT is defined in tag frame, but we need to apply rotation first
+        # The tag is at distance cube_half from center along cube Z-axis
+        # So in cube frame, each tag is at a different position
+        # We need: cube_center = tag_pos + R_cube @ (-tag_pos_in_cube_frame)
+        com_pos = t_s + R_tag @ offT  # Transform offset from tag frame to camera frame
         com_positions.append(com_pos)
         com_rotations.append(com_rot)
 
