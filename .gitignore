@@ -10,3 +10,4 @@ wheels/
 .venv
 calibration_images/*
 calibrated_offsets.txt
+photos/*

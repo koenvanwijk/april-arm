@@ -208,6 +208,39 @@ def compute_offsets_optimized(observations, optimize_camera=True):
         print("\n✓ Optimization converged")
         rot_offset, trans_offset, K_opt, D_opt = unpack_params(result.x)
         
+        # Check for unusual rotation angles (should be near 90° multiples for cube)
+        print("\n⚠️  Checking rotation offset quality...")
+        warnings = []
+        for tid in sorted(rot_offset.keys()):
+            if tid == 0:
+                continue  # Tag 0 is reference (identity)
+            euler = R.from_matrix(rot_offset[tid]).as_euler('xyz', degrees=True)
+            # Check each angle - should be near 0, ±90, ±180
+            max_deviation = 0
+            for i, angle in enumerate(euler):
+                # Find nearest 90° multiple
+                nearest_90 = round(angle / 90) * 90
+                deviation = abs(angle - nearest_90)
+                # Wrap to [-180, 180]
+                if deviation > 180:
+                    deviation = 360 - deviation
+                max_deviation = max(max_deviation, deviation)
+            
+            if max_deviation > 15:
+                warnings.append(f"  Tag {tid}: [{euler[0]:.1f}, {euler[1]:.1f}, {euler[2]:.1f}]° (max deviation: {max_deviation:.1f}°)")
+        
+        if warnings:
+            print("  ⚠️  WARNING: Some tags have unusual rotation offsets:")
+            for w in warnings:
+                print(w)
+            print("  This may indicate:")
+            print("    - Insufficient observations for those tags")
+            print("    - Poor optimizer convergence")
+            print("    - Tags physically misaligned on cube")
+            print("  Consider recalibrating with more observations.")
+        else:
+            print("  ✓ All rotation offsets look good (near 90° multiples)")
+        
         if optimize_camera:
             print("\nRefined camera parameters:")
             print(f"  fx: {mtx[0,0]:.1f} → {K_opt[0,0]:.1f}")
@@ -381,19 +414,16 @@ while True:
         corners_left, ids_left, _ = detector.detectMarkers(gray_left)
         corners_right, ids_right, _ = detector.detectMarkers(gray_right)
         
-        # Combine detections from both cameras
-        all_corners = []
-        all_ids = []
+        # For calibration, use only LEFT camera detections
+        # (Stereo uses same lens parameters, so calibrating one is sufficient)
+        # But show detections from both for visualization
+        corners = corners_left
+        ids = ids_left
         
-        if ids_left is not None:
-            all_corners.extend(corners_left)
-            all_ids.extend(ids_left)
+        # Store for display which tags are seen in right camera too
+        ids_in_right = set()
         if ids_right is not None:
-            all_corners.extend(corners_right)
-            all_ids.extend(ids_right)
-        
-        corners = all_corners if all_corners else None
-        ids = np.array(all_ids) if all_ids else None
+            ids_in_right = set(int(id_arr[0]) for id_arr in ids_right)
         
         # Use left frame dimensions
         h, w = frame_left.shape[:2]
@@ -410,23 +440,39 @@ while True:
         if frame_skip >= CAPTURE_EVERY_N:
             frame_skip = 0
             
-            # Build frame data
+            # Build frame data, checking quality
             frame_data = {}
+            QUALITY_THRESHOLD = 5.0  # pixels - increase if too many good tags are rejected
+            
             for corner, id_arr in zip(corners, ids):
                 tid = int(id_arr[0])
-                rvec, tvec, _ = estimate_pose([corner], MARKER_SIZE, mtx, dist)
-                frame_data[tid] = (tvec[0].flatten(), rvec[0])
+                rvec, tvec, error = estimate_pose([corner], MARKER_SIZE, mtx, dist)
+                
+                # Only include high-quality detections
+                if error[0] <= QUALITY_THRESHOLD:
+                    frame_data[tid] = (tvec[0].flatten(), rvec[0])
             
-            observations.append(frame_data)
-            auto_captured = True
+            # Only save if we still have 2+ good tags
+            if len(frame_data) >= 2:
+                observations.append(frame_data)
+                auto_captured = True
     
     # Visualization
     if USE_STEREO_MODE:
         # Draw on both frames and combine
         if ids_left is not None:
-            cv2.aruco.drawDetectedMarkers(frame_left, corners_left, ids_left)
+            # Draw with quality feedback
+            for corner, id_arr in zip(corners_left, ids_left):
+                tid = int(id_arr[0])
+                _, _, error = estimate_pose([corner], MARKER_SIZE, mtx, dist)
+                color = (0, 255, 0) if error[0] <= 5.0 else (0, 0, 255)
+                cv2.aruco.drawDetectedMarkers(frame_left, [corner], np.array([[id_arr]]), borderColor=color)
         if ids_right is not None:
-            cv2.aruco.drawDetectedMarkers(frame_right, corners_right, ids_right)
+            for corner, id_arr in zip(corners_right, ids_right):
+                tid = int(id_arr[0])
+                _, _, error = estimate_pose([corner], MARKER_SIZE, mtx, dist)
+                color = (0, 255, 0) if error[0] <= 5.0 else (0, 0, 255)
+                cv2.aruco.drawDetectedMarkers(frame_right, [corner], np.array([[id_arr]]), borderColor=color)
         
         # Combine side-by-side for display
         display_frame = np.hstack([frame_left, frame_right])
@@ -435,7 +481,11 @@ while True:
         display_frame = frame
         h_display, w_display = h, w
         if ids is not None:
-            cv2.aruco.drawDetectedMarkers(display_frame, corners, ids)
+            # Draw with quality feedback
+            for corner, id_arr in zip(corners, ids):
+                _, _, error = estimate_pose([corner], MARKER_SIZE, mtx, dist)
+                color = (0, 255, 0) if error[0] <= 5.0 else (0, 0, 255)
+                cv2.aruco.drawDetectedMarkers(display_frame, [corner], np.array([[id_arr]]), borderColor=color)
     
     if ids is not None:
         n_tags = len(ids)

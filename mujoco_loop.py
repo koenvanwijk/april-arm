@@ -1,3 +1,5 @@
+import signal
+import sys
 import threading
 import time
 from queue import Empty, Queue
@@ -23,65 +25,80 @@ max_angvel = 0.0
 
 # Gripper control variables
 gripper_target = 0.0
+# Terminal settings backup for restoration
+terminal_settings_backup = None
+
+
+def restore_terminal():
+    """Restore terminal to normal mode"""
+    global terminal_settings_backup
+    if terminal_settings_backup is not None:
+        import termios
+        termios.tcsetattr(sys.stdin.fileno(), termios.TCSADRAIN, terminal_settings_backup)
+        terminal_settings_backup = None
+        print("\nTerminal restored")
+
+
+def signal_handler(sig, frame):
+    """Handle Ctrl+C to restore terminal"""
+    restore_terminal()
+    sys.exit(0)
 
 
 def keyboard_listener():
-    """Simple keyboard listener for gripper control using terminal input"""
-    global gripper_target
+    """Simple keyboard listener for gripper control - no Enter needed!"""
+    global gripper_target, terminal_settings_backup
+    
     try:
-        import sys
         import termios
         import tty
-
-        def getch():
-            fd = sys.stdin.fileno()
-            old_settings = termios.tcgetattr(fd)
-            try:
-                tty.setraw(fd)
+        
+        fd = sys.stdin.fileno()
+        terminal_settings_backup = termios.tcgetattr(fd)
+        
+        # Set up signal handler for Ctrl+C
+        signal.signal(signal.SIGINT, signal_handler)
+        
+        try:
+            tty.setraw(fd)
+            
+            print("Gripper controls: [9]=open [0]=close [q]=quit (no Enter needed!)")
+            
+            while True:
                 ch = sys.stdin.read(1)
-                return ch
-            finally:
-                termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
-
-        print("Keyboard controls active:")
-        print("- Press 'u' to open gripper")
-        print("- Press 'j' to close gripper")
-        print("- Press 'q' to quit")
-
-        while True:
-            key = getch()
-            if key == "u":
-                gripper_target = min(gripper_target + 0.1, 2.0)
-                print(f"Open gripper: {gripper_target:.2f}")
-            elif key == "j":
-                gripper_target = max(gripper_target - 0.1, -0.2)
-                print(f"Close gripper: {gripper_target:.2f}")
-            elif key == "q":
-                break
-
-    except ImportError:
+                if ch == "9":
+                    gripper_target = min(gripper_target + 0.1, 2.0)
+                    # Use \r to overwrite line without scrolling
+                    sys.stdout.write(f"\rGripper: {gripper_target:.2f}  ")
+                    sys.stdout.flush()
+                elif ch == "0":
+                    gripper_target = max(gripper_target - 0.1, -0.2)
+                    sys.stdout.write(f"\rGripper: {gripper_target:.2f}  ")
+                    sys.stdout.flush()
+                elif ch == "q" or ch == "\x03":  # q or Ctrl+C
+                    break
+        finally:
+            restore_terminal()
+            
+    except (ImportError, AttributeError):
         # Fallback for non-Unix systems
-        print("Keyboard controls:")
-        print("Type 'w' + Enter to open gripper")
-        print("Type 's' + Enter to close gripper")
-        print("Type 'q' + Enter to quit")
-
+        print("Keyboard controls: 9 + Enter = open, 0 + Enter = close")
         while True:
             try:
                 key = input().strip().lower()
-                if key == "w":
-                    gripper_target = min(gripper_target + 0.3, 2.0)
-                    print(f"Open gripper: {gripper_target:.2f}")
-                elif key == "s":
-                    gripper_target = max(gripper_target - 0.3, -0.2)
-                    print(f"Close gripper: {gripper_target:.2f}")
+                if key == "9":
+                    gripper_target = min(gripper_target + 0.1, 2.0)
+                    print(f"Gripper: {gripper_target:.2f}")
+                elif key == "0":
+                    gripper_target = max(gripper_target - 0.1, -0.2)
+                    print(f"Gripper: {gripper_target:.2f}")
                 elif key == "q":
                     break
-            except EOFError:
+            except (EOFError, KeyboardInterrupt):
                 break
 
 
-def sim_loop(queue: Queue | None = None):
+def sim_loop(queue: Queue | None = None, enable_gripper_control: bool = False):
     global gripper_target
     model = mujoco.MjModel.from_xml_path("scene.xml")
     data = mujoco.MjData(model)
@@ -141,15 +158,19 @@ def sim_loop(queue: Queue | None = None):
         y = r * np.sin(2 * np.pi * f * t) + k
         return np.array([x, y])
 
-    # Start keyboard listener thread
-    keyboard_thread = threading.Thread(target=keyboard_listener, daemon=True)
-    keyboard_thread.start()
+    # Start keyboard listener thread only if enabled
+    if enable_gripper_control:
+        keyboard_thread = threading.Thread(target=keyboard_listener, daemon=True)
+        keyboard_thread.start()
+        print("Gripper control enabled (9=open, 0=close)")
+    else:
+        print("Gripper control disabled - use Control panel in MuJoCo viewer (right side)")
 
     with mujoco.viewer.launch_passive(
         model=model,
         data=data,
         show_left_ui=False,
-        show_right_ui=False,
+        show_right_ui=True,  # Enable right UI for Control panel
     ) as viewer:
         mujoco.mj_resetDataKeyframe(model, data, key_id)
 
@@ -163,20 +184,32 @@ def sim_loop(queue: Queue | None = None):
 
         # Enable body axes visualization
         # viewer.opt.frame = mujoco.mjtFrame.mjFRAME_BODY
+        
+        # Print throttle
+        last_print_time = 0.0
 
         while viewer.is_running():
             step_start = time.time()
             # data.mocap_pos[mocap_id, 0:2] = circle(data.time, 0.5, 0.5, 0.1, 0.1)
 
-            # Set gripper control from keyboard thread
-            data.ctrl[jaw_actuator_id] = gripper_target
+            # Set gripper control from keyboard thread (only if enabled)
+            if enable_gripper_control:
+                data.ctrl[jaw_actuator_id] = gripper_target
 
             if queue is not None:
                 try:
                     latest_pose = queue.get_nowait()
                     data.mocap_pos[mocap_id] += latest_pose.pos
-                    # Skip quaternion updates for now
+                    
+                    # Update orientation to follow cube rotation
                     # data.mocap_quat[mocap_id] = latest_pose.quat
+                    
+                    # Print mocap position in MuJoCo world coordinates (throttled)
+                    if time.time() - last_print_time > 0.5:
+                        mocap_pos = data.mocap_pos[mocap_id]
+                        print(f"[MuJoCo] mocap: X={mocap_pos[0]*1000:6.1f} Y={mocap_pos[1]*1000:6.1f} Z={mocap_pos[2]*1000:6.1f} mm")
+                        last_print_time = time.time()
+                    
                 except Empty:
                     pass
 

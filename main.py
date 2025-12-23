@@ -11,4 +11,6 @@ if __name__ == "__main__":
     pose_q = queue.Queue(maxsize=1)
     threading.Thread(target=vision_loop, args=(pose_q,), daemon=True).start()
 
-    sim_loop(pose_q)
+    # Gripper control disabled - MuJoCo viewer captures all keyboard input
+    # To enable: set enable_gripper_control=True (but it won't work with viewer active)
+    sim_loop(pose_q, enable_gripper_control=False)
