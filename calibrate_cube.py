@@ -12,7 +12,7 @@ import sys
 from collections import defaultdict
 import threading
 
-from april import TAG_FAMILY, MARKER_SIZE, CAM_ID, STEREO_CAM, USE_STEREO, estimate_pose
+from april import TAG_FAMILY, MARKER_SIZE, CAM_ID, estimate_pose
 
 # Load calibration
 try:
@@ -281,34 +281,7 @@ def save_and_update(rot_offset, trans_offset, K_new=None, D_new=None):
     return True
 
 # Setup
-if USE_STEREO and STEREO_CAM:
-    cap = cv2.VideoCapture(STEREO_CAM)
-    if not cap.isOpened():
-        print(f"⚠️  Stereo camera {STEREO_CAM} not found, falling back to CAM_ID={CAM_ID}")
-        cap = cv2.VideoCapture(CAM_ID)
-        USE_STEREO_MODE = False
-    else:
-        print(f"✓ Using stereo camera: {STEREO_CAM}")
-        # Set MJPEG compression for better framerate
-        cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc('M', 'J', 'P', 'G'))
-        # Set stereo resolution (2x width for side-by-side)
-        cap.set(cv2.CAP_PROP_FRAME_WIDTH, 2560)
-        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
-        cap.set(cv2.CAP_PROP_FPS, 30)
-        
-        # Verify actual resolution
-        actual_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-        actual_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-        actual_fps = int(cap.get(cv2.CAP_PROP_FPS))
-        print(f"  Resolution: {actual_w}x{actual_h} @ {actual_fps}fps")
-        
-        if actual_w < 1280:
-            print(f"⚠️  Warning: stereo width {actual_w} seems too small, expected 2x camera width")
-        
-        USE_STEREO_MODE = True
-else:
-    cap = cv2.VideoCapture(CAM_ID)
-    USE_STEREO_MODE = False
+cap = cv2.VideoCapture(CAM_ID)
 
 if not cap.isOpened():
     sys.exit("No webcam")
@@ -349,38 +322,10 @@ while True:
     if not ret:
         break
     
-    # Split stereo frame if enabled
-    if USE_STEREO_MODE:
-        h, w = frame.shape[:2]
-        mid = w // 2
-        frame_left = frame[:, :mid]
-        frame_right = frame[:, mid:]
-        
-        # Detect on both frames
-        gray_left = cv2.cvtColor(frame_left, cv2.COLOR_BGR2GRAY)
-        gray_right = cv2.cvtColor(frame_right, cv2.COLOR_BGR2GRAY)
-        
-        corners_left, ids_left, _ = detector.detectMarkers(gray_left)
-        corners_right, ids_right, _ = detector.detectMarkers(gray_right)
-        
-        # For calibration, use only LEFT camera detections
-        # (Stereo uses same lens parameters, so calibrating one is sufficient)
-        # But show detections from both for visualization
-        corners = corners_left
-        ids = ids_left
-        
-        # Store for display which tags are seen in right camera too
-        ids_in_right = set()
-        if ids_right is not None:
-            ids_in_right = set(int(id_arr[0]) for id_arr in ids_right)
-        
-        # Use left frame dimensions
-        h, w = frame_left.shape[:2]
-    else:
-        # Single camera mode
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        corners, ids, _ = detector.detectMarkers(gray)
-        h, w = frame.shape[:2]
+    # Single camera detection
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    corners, ids, _ = detector.detectMarkers(gray)
+    h, w = frame.shape[:2]
     
     # Auto-capture frames with 2+ good tags
     auto_captured = False
@@ -407,34 +352,14 @@ while True:
                 auto_captured = True
     
     # Visualization
-    if USE_STEREO_MODE:
-        # Draw on both frames and combine
-        if ids_left is not None:
-            # Draw with quality feedback
-            for corner, id_arr in zip(corners_left, ids_left):
-                tid = int(id_arr[0])
-                _, _, error = estimate_pose([corner], MARKER_SIZE, mtx, dist)
-                color = (0, 255, 0) if error[0] <= 5.0 else (0, 0, 255)
-                cv2.aruco.drawDetectedMarkers(frame_left, [corner], np.array([[id_arr]]), borderColor=color)
-        if ids_right is not None:
-            for corner, id_arr in zip(corners_right, ids_right):
-                tid = int(id_arr[0])
-                _, _, error = estimate_pose([corner], MARKER_SIZE, mtx, dist)
-                color = (0, 255, 0) if error[0] <= 5.0 else (0, 0, 255)
-                cv2.aruco.drawDetectedMarkers(frame_right, [corner], np.array([[id_arr]]), borderColor=color)
-        
-        # Combine side-by-side for display
-        display_frame = np.hstack([frame_left, frame_right])
-        h_display, w_display = display_frame.shape[:2]
-    else:
-        display_frame = frame
-        h_display, w_display = h, w
-        if ids is not None:
-            # Draw with quality feedback
-            for corner, id_arr in zip(corners, ids):
-                _, _, error = estimate_pose([corner], MARKER_SIZE, mtx, dist)
-                color = (0, 255, 0) if error[0] <= 5.0 else (0, 0, 255)
-                cv2.aruco.drawDetectedMarkers(display_frame, [corner], np.array([[id_arr]]), borderColor=color)
+    display_frame = frame
+    h_display, w_display = h, w
+    if ids is not None:
+        # Draw with quality feedback
+        for corner, id_arr in zip(corners, ids):
+            _, _, error = estimate_pose([corner], MARKER_SIZE, mtx, dist)
+            color = (0, 255, 0) if error[0] <= 5.0 else (0, 0, 255)
+            cv2.aruco.drawDetectedMarkers(display_frame, [corner], np.array([[id_arr]]), borderColor=color)
     
     if ids is not None:
         n_tags = len(ids)
@@ -448,17 +373,10 @@ while True:
         
         cv2.putText(display_frame, msg, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
         
-        # Draw tag axes (on appropriate frame)
-        if USE_STEREO_MODE:
-            # Draw on left frame only for simplicity
-            if ids_left is not None:
-                for corner, id_arr in zip(corners_left, ids_left):
-                    rvec, tvec, _ = estimate_pose([corner], MARKER_SIZE, mtx, dist)
-                    cv2.drawFrameAxes(frame_left, mtx, dist, rvec[0], tvec[0], MARKER_SIZE * 0.3)
-        else:
-            for corner, id_arr in zip(corners, ids):
-                rvec, tvec, _ = estimate_pose([corner], MARKER_SIZE, mtx, dist)
-                cv2.drawFrameAxes(display_frame, mtx, dist, rvec[0], tvec[0], MARKER_SIZE * 0.3)
+        # Draw tag axes
+        for corner, id_arr in zip(corners, ids):
+            rvec, tvec, _ = estimate_pose([corner], MARKER_SIZE, mtx, dist)
+            cv2.drawFrameAxes(display_frame, mtx, dist, rvec[0], tvec[0], MARKER_SIZE * 0.3)
     
     # Count observations per tag
     tag_counts = {}
