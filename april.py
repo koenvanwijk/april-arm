@@ -350,37 +350,8 @@ def vision_loop(q: Queue | None, calib="camera.npz"):
     while True:
         _, frame = cap.read()
         
-        # Split stereo frame if enabled
-        if USE_STEREO and STEREO_CAM:
-            h, w = frame.shape[:2]
-            mid = w // 2
-            frame_left = frame[:, :mid]
-            frame_right = frame[:, mid:]
-            
-            # Detect on both frames
-            frame_left_vis, pose_left, pos_left = detect_and_draw(frame_left, K, D, table_plane, calibration_samples)
-            frame_right_vis, pose_right, pos_right = detect_and_draw(frame_right, K, D, table_plane, calibration_samples)
-            pos_cam = (pos_left + pos_right) / 2
-            
-            # Combine visualizations side-by-side
-            frame = np.hstack([frame_left_vis, frame_right_vis])
-            
-            # Stereo fusion: if both cameras see the pose, use triangulation for better depth
-            if pose_left is not None and pose_right is not None:
-                # Simple stereo: average positions, but weight left position more
-                # In true stereo, disparity gives depth: depth = (baseline * focal) / disparity
-                # For now, use weighted average favoring left camera
-                pose_pos = 0.7 * pose_left.pos + 0.3 * pose_right.pos
-                pose = Pose(pose_pos, pose_left.quat)
-            elif pose_left is not None:
-                pose = pose_left
-            elif pose_right is not None:
-                pose = pose_right
-            else:
-                pose = None
-        else:
-            # Single camera mode
-            (frame, pose, pos_cam) = detect_and_draw(frame, K, D, table_plane, calibration_samples)
+        # Single camera detection
+        (frame, pose, pos_cam) = detect_and_draw(frame, K, D, table_plane, calibration_samples)
         
         # Handle keyboard input
         key = cv2.waitKey(1) & 0xFF
