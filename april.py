@@ -289,11 +289,6 @@ def detect_and_draw(
         y_text = 30
         # Draw white background boxes for better contrast
         box_height = 170 if table_plane is None else 120
-        cv2.rectangle(frame, (5, 5), (320, box_height), (255, 255, 255), -1)
-        
-        cv2.putText(frame, "World Position:", (10, y_text),
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 2)
-        y_text += 3070 if table_plane is None else 120
         cv2.rectangle(frame, (5, 5), (380, box_height), (255, 255, 255), -1)
         
         cv2.putText(frame, "World Position:", (10, y_text),
