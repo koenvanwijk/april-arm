@@ -11,7 +11,7 @@ from datetime import datetime
 
 # Checkerboard dimensions (internal corners: 9x6 board has 8x5 corners)
 CHECKERBOARD = (9, 6)  # Generated checkerboard: 10x7 squares = 9x6 internal corners
-SQUARE_SIZE = 26  # mm - measure your printed squares!
+SQUARE_SIZE = 25.8  # mm - measure your printed squares!
 
 # Camera
 CAM_ID = 0

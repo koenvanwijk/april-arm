@@ -261,31 +261,7 @@ def save_and_update(rot_offset, trans_offset, K_new=None, D_new=None):
         np.savez("calib.npz", mtx=K_new, dist=D_new)
         print("💾 Updated calib.npz with refined camera parameters")
     
-    # Save to file
-    with open("calibrated_offsets.txt", "w") as f:
-        f.write("# Optimized offsets\n")
-        f.write("from scipy.spatial.transform import Rotation as R\n")
-        f.write("import numpy as np\n\n")
-        
-        f.write("trans_offset = {\n")
-        for tid in sorted(trans_offset.keys()):
-            t = trans_offset[tid]
-            f.write(f"    {tid}: np.array([{t[0]:.6f}, {t[1]:.6f}, {t[2]:.6f}]),\n")
-        f.write("}\n\n")
-        
-        f.write("rot_offset = {\n")
-        for tid in sorted(rot_offset.keys()):
-            R_mat = rot_offset[tid]
-            if np.allclose(R_mat, np.eye(3)):
-                f.write(f"    {tid}: np.eye(3),\n")
-            else:
-                euler = R.from_matrix(R_mat).as_euler('xyz', degrees=True)
-                f.write(f"    {tid}: R.from_euler('xyz', [{euler[0]:.1f}, {euler[1]:.1f}, {euler[2]:.1f}], degrees=True).as_matrix(),\n")
-        f.write("}\n")
-    
-    print(f"\n💾 Saved to calibrated_offsets.txt")
-    
-    # Update april.py
+    # Update april.py with offsets
     try:
         with open("april.py", "r") as f:
             content = f.read()

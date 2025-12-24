@@ -27,6 +27,8 @@ CAMERA_ROTATION = np.load('camera_rotation.npz')['rotation_matrix']
 cube_length = 0.05
 cube_half = cube_length / 2
 
+# this trans_offset is updated by the calibrate cube script
+
 trans_offset = {  # tag frame → cube-COM translation (metres)
     0: np.array([0.000000, 0.000000, -0.025000]),
     1: np.array([-0.011026, 0.003969, -0.034302]),
@@ -35,6 +37,8 @@ trans_offset = {  # tag frame → cube-COM translation (metres)
     4: np.array([-0.002749, 0.001517, -0.027374]),
     5: np.array([-0.008780, 0.005476, -0.033904]),
 }
+
+# this rot_offset is updated by the calibrate cube script
 
 rot_offset = {
     0: np.eye(3),
