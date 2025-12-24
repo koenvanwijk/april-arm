@@ -111,6 +111,7 @@ def estimate_pose(corners, marker_size, mtx, distortion):
 class Pose:
     pos: npt.NDArray[np.float64]  # (x,y,z) for MuJoCo
     quat: npt.NDArray[np.float64]  # (x,y,z,w) for MuJoCo
+    yaw: float = 0.0  # Rotation around world Z-axis in radians
 
 
 # ---------- pose smoother --------------------------------------------------
@@ -242,6 +243,16 @@ def detect_and_draw(
         # Replace Z with calibrated height from table plane
         pos_world = np.array([pos_world_full[0], pos_world_full[1], height_above_table])
         
+        # Calculate rotation around world Z-axis (yaw/heading)
+        # Transform cube rotation to world frame
+        R_cube_cam, _ = cv2.Rodrigues(rvec_sm)
+        R_cube_world = CAMERA_ROTATION @ R_cube_cam
+        
+        # Extract yaw angle (rotation around Z-axis)
+        # Use atan2 of rotation matrix elements to get Z-axis rotation
+        yaw_rad = np.arctan2(R_cube_world[1, 0], R_cube_world[0, 0])
+        yaw_deg = np.degrees(yaw_rad)
+        
         # Draw world frame axes using CAMERA_ROTATION
         axis_length = MARKER_SIZE * 1.2
         
@@ -288,7 +299,7 @@ def detect_and_draw(
         # Display position in mm with white background
         y_text = 30
         # Draw white background boxes for better contrast
-        box_height = 170 if table_plane is None else 120
+        box_height = 170 if table_plane is None else 145
         cv2.rectangle(frame, (5, 5), (380, box_height), (255, 255, 255), -1)
         
         cv2.putText(frame, "World Position:", (10, y_text),
@@ -315,9 +326,12 @@ def detect_and_draw(
         else:
             cv2.putText(frame, f"Z: {pos_world[2]*1000:6.1f} mm (height)", (10, y_text),
                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1)
+            y_text += 25
+            cv2.putText(frame, f"Yaw: {yaw_deg:6.1f}\u00b0 (Z-axis rotation)", (10, y_text),
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1)
         
         _ = cv2.aruco.drawDetectedMarkers(frame, corners, ids)
-        return frame, Pose(pos_world, R.from_rotvec(rvec_sm.reshape(3)).as_quat()), pos_sm.copy()
+        return frame, Pose(pos_world, R.from_rotvec(rvec_sm.reshape(3)).as_quat(), yaw_rad), pos_sm.copy()
     else:
         _ = cv2.aruco.drawDetectedMarkers(frame, corners, ids)
         return frame, None, np.zeros(3)
@@ -458,7 +472,7 @@ def vision_loop(q: Queue | None, calib="camera.npz"):
                         q.get_nowait()  # drop stale message
                     except Empty:
                         pass
-                    q.put(Pose(d_pos_mujoco, quat=pose.quat))
+                    q.put(Pose(d_pos_mujoco, quat=pose.quat, yaw=pose.yaw))
 
         if pose is not None:
             prev_pos = pose.pos  # update history

@@ -121,7 +121,16 @@ def sim_loop(queue: Queue | None = None, enable_gripper_control: bool = False):
         body_ids = [model.body(name).id for name in body_names]
         model.body_gravcomp[body_ids] = 1.0
 
-    joint_names = [
+    # Joints for IK (excluding Wrist_Roll and Jaw which are controlled separately)
+    ik_joint_names = [
+        "Rotation",
+        "Pitch",
+        "Elbow",
+        "Wrist_Pitch",
+    ]
+    
+    # All joints including those not in IK
+    all_joint_names = [
         "Rotation",
         "Pitch",
         "Elbow",
@@ -130,12 +139,20 @@ def sim_loop(queue: Queue | None = None, enable_gripper_control: bool = False):
         "Jaw",
     ]
 
-    dof_ids = [model.joint(name).id for name in joint_names]
-    actuator_ids = [model.actuator(name).id for name in joint_names]
+    ik_dof_ids = [model.joint(name).id for name in ik_joint_names]
+    ik_actuator_ids = [model.actuator(name).id for name in ik_joint_names]
+    
+    all_dof_ids = [model.joint(name).id for name in all_joint_names]
+    all_actuator_ids = [model.actuator(name).id for name in all_joint_names]
 
     # Get jaw joint ID for manual control
     jaw_dof_id = model.joint("Jaw").id
     jaw_actuator_id = model.actuator("Jaw").id
+    
+    # Get wrist roll joint ID for yaw control
+    wrist_roll_dof_id = model.joint("Wrist_Roll").id
+    wrist_roll_actuator_id = model.actuator("Wrist_Roll").id
+    
     key_id = model.key("home-scene").id
 
     mocap_id = model.body("target").mocapid[0]
@@ -187,6 +204,9 @@ def sim_loop(queue: Queue | None = None, enable_gripper_control: bool = False):
         
         # Print throttle
         last_print_time = 0.0
+        
+        # Initialize wrist roll target
+        wrist_roll_target = 0.0
 
         while viewer.is_running():
             step_start = time.time()
@@ -201,13 +221,17 @@ def sim_loop(queue: Queue | None = None, enable_gripper_control: bool = False):
                     latest_pose = queue.get_nowait()
                     data.mocap_pos[mocap_id] += latest_pose.pos
                     
+                    # Update wrist roll target with yaw angle from cube
+                    wrist_roll_target = latest_pose.yaw
+                    
                     # Update orientation to follow cube rotation
                     # data.mocap_quat[mocap_id] = latest_pose.quat
                     
                     # Print mocap position in MuJoCo world coordinates (throttled)
                     if time.time() - last_print_time > 0.5:
                         mocap_pos = data.mocap_pos[mocap_id]
-                        print(f"[MuJoCo] mocap: X={mocap_pos[0]*1000:6.1f} Y={mocap_pos[1]*1000:6.1f} Z={mocap_pos[2]*1000:6.1f} mm")
+                        yaw_deg = np.degrees(latest_pose.yaw)
+                        print(f"[MuJoCo] mocap: X={mocap_pos[0]*1000:6.1f} Y={mocap_pos[1]*1000:6.1f} Z={mocap_pos[2]*1000:6.1f} mm, Wrist: {yaw_deg:6.1f}°")
                         last_print_time = time.time()
                     
                 except Empty:
@@ -224,6 +248,10 @@ def sim_loop(queue: Queue | None = None, enable_gripper_control: bool = False):
 
             # Solve system of equations: J @ dq = error.
             dq = jac.T @ np.linalg.solve(jac @ jac.T + diag, error)
+            
+            # Zero out the wrist roll and jaw deltas - we control these separately
+            dq[wrist_roll_dof_id] = 0.0
+            dq[jaw_dof_id] = 0.0
 
             # scale down joint velocities if they exceed maximum.
             if max_angvel > 0:
@@ -236,19 +264,22 @@ def sim_loop(queue: Queue | None = None, enable_gripper_control: bool = False):
             mujoco.mj_integratePos(model, q, dq, integration_dt)
 
             # Set the control signal.
-            # Only clip the actuated joints (robot joints), not the free cube joints
-            q_robot = q[dof_ids]
-            # Get joint ranges for only the actuated joints
-            robot_joint_ranges = model.jnt_range[dof_ids]
+            # Only clip the IK joints (not wrist roll or jaw which are controlled separately)
+            q_ik = q[ik_dof_ids]
+            # Get joint ranges for only the IK joints
+            ik_joint_ranges = model.jnt_range[ik_dof_ids]
             np.clip(
-                q_robot, robot_joint_ranges[:, 0], robot_joint_ranges[:, 1], out=q_robot
+                q_ik, ik_joint_ranges[:, 0], ik_joint_ranges[:, 1], out=q_ik
             )
-            q[dof_ids] = q_robot
+            q[ik_dof_ids] = q_ik
 
-            # Set control for all joints except jaw (which is controlled by keyboard)
-            for i, actuator_id in enumerate(actuator_ids):
-                if actuator_id != jaw_actuator_id:  # Skip jaw actuator
-                    data.ctrl[actuator_id] = q_robot[i]
+            # Set control for IK joints
+            for i, actuator_id in enumerate(ik_actuator_ids):
+                data.ctrl[actuator_id] = q_ik[i]
+            
+            # Set wrist roll control AFTER IK to prevent overwriting
+            data.ctrl[wrist_roll_actuator_id] = wrist_roll_target
+            
             # Jaw control is set separately above
 
             # Step the simulation.
