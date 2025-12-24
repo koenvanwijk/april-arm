@@ -37,8 +37,7 @@ print("Frames with 2+ tags are automatically captured.")
 print("Collect 50+ frames, then compute offsets.")
 print()
 print("Controls:")
-print("  C     = Compute offsets")
-print("  S     = Save and update april.py")
+print("  C     = Compute offsets and save")
 print("  R     = Reset/clear observations")
 print("  Q/ESC = Quit")
 print("=" * 70)
@@ -312,6 +311,8 @@ def compute_in_background():
                 print(f"  Tag {tid}:")
                 print(f"    rot: {R.from_matrix(computed_rot[tid]).as_euler('xyz', degrees=True)}")
                 print(f"    trans: {computed_trans[tid]}")
+            # Auto-save
+            save_and_update(computed_rot, computed_trans, computed_K, computed_D)
     except Exception as e:
         print(f"\n⚠️  Optimization error: {e}")
     finally:
@@ -400,13 +401,13 @@ while True:
     
     # Show computing status
     if computing:
-        cv2.putText(display_frame, "Computing... Please wait", 
+        cv2.putText(display_frame, "Computing and saving... Please wait", 
                    (10, h_display-50), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
     elif computed_rot and computed_trans:
-        cv2.putText(display_frame, "Offsets computed! Press S to save", 
+        cv2.putText(display_frame, "Offsets saved! Press R to recalibrate", 
                    (10, h_display-50), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
     
-    cv2.putText(display_frame, "C=Compute | S=Save | R=Reset | Q=Quit", 
+    cv2.putText(display_frame, "C=Compute&Save | R=Reset | Q=Quit",
                (10, h_display-20), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
     
     cv2.imshow("Complete Calibration", display_frame)
@@ -432,12 +433,6 @@ while True:
             print("⚠️  Already computing...")
         else:
             print(f"⚠️  Need 20+ observations (have {len(observations)})")
-    
-    elif key == ord('s') or key == ord('S'):
-        if computed_rot and computed_trans:
-            save_and_update(computed_rot, computed_trans, computed_K, computed_D)
-        else:
-            print("⚠️  Compute offsets first (press C)")
     
     elif key == ord('q') or key == ord('Q') or key == 27:
         break

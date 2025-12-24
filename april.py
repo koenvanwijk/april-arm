@@ -16,7 +16,20 @@ TAG_FAMILY = cv2.aruco.DICT_APRILTAG_16h5
 MARKER_SIZE = 0.046  # 46 mm
 CAM_ID = 0
 
-CAMERA_ROTATION = np.load('camera_rotation.npz')['rotation_matrix']
+# Load camera rotation or use default
+try:
+    CAMERA_ROTATION = np.load('camera_rotation.npz')['rotation_matrix']
+    print("✓ Loaded camera rotation from camera_rotation.npz")
+except FileNotFoundError:
+    # Default: 30° tilt
+    CAMERA_TILT_DEGREES = 30.0
+    tilt_rad = np.radians(CAMERA_TILT_DEGREES)
+    CAMERA_ROTATION = np.array([
+        [1, 0, 0],
+        [0, np.cos(tilt_rad), -np.sin(tilt_rad)],
+        [0, np.sin(tilt_rad), np.cos(tilt_rad)]
+    ], dtype=np.float64)
+    print(f"⚠️  Using default camera rotation (30° tilt)")
 # ---------- cube geometry --------------------------------------------------
 cube_length = 0.05
 cube_half = cube_length / 2
@@ -393,8 +406,30 @@ def vision_loop(q: Queue | None, calib="camera.npz"):
                 np.savez(table_plane_file, normal=normal, d=d)
                 print(f"✓ Saved to {table_plane_file}")
                 
-                calibration_samples.clear()
+                # Automatically calibrate camera orientation from table plane
+                up_cam = -normal / np.linalg.norm(normal)  # Negate because normal points toward camera
                 
+                # Choose forward direction (Y in world) as projection of camera Z onto table
+                forward_cam = np.array([0.0, 0.0, 1.0])  # Camera looks along +Z
+                forward_cam_on_table = forward_cam - np.dot(forward_cam, up_cam) * up_cam
+                forward_cam_on_table = forward_cam_on_table / np.linalg.norm(forward_cam_on_table)
+                
+                # Right direction (X) is perpendicular to both
+                right_cam = np.cross(forward_cam_on_table, up_cam)
+                right_cam = right_cam / np.linalg.norm(right_cam)
+                
+                # Build rotation matrix: columns are world axes expressed in camera frame
+                global CAMERA_ROTATION
+                CAMERA_ROTATION = np.column_stack([right_cam, forward_cam_on_table, up_cam])
+                
+                # Save camera rotation to file
+                np.savez('camera_rotation.npz', rotation_matrix=CAMERA_ROTATION)
+                print("✓ Camera orientation auto-calibrated from table plane")
+                euler = R.from_matrix(CAMERA_ROTATION).as_euler('xyz', degrees=True)
+                print(f"  Rotation: [{euler[0]:.1f}, {euler[1]:.1f}, {euler[2]:.1f}]°")
+                
+                calibration_samples.clear()
+        
         elif key == ord('r'):
             # Reset calibration
             table_plane = None
