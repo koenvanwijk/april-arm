@@ -457,7 +457,6 @@ def vision_loop(q: Queue | None, calib="camera.npz"):
                     
                     # Print delta from initial position (total movement)
                     total_delta_world = pose.pos - initial_pos  # Already in world frame!
-                    print(f"[April] ΔX={total_delta_world[0]*1000:6.1f} ΔY={total_delta_world[1]*1000:6.1f} ΔZ={total_delta_world[2]*1000:6.1f} mm (vanaf begin)")
                     
                     # ----------------  send newest only  ----------------------
                     try:

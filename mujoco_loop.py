@@ -170,7 +170,7 @@ def sim_loop(queue: Queue | None = None, enable_gripper_control: bool = False):
         model=model,
         data=data,
         show_left_ui=False,
-        show_right_ui=True,  # Enable right UI for Control panel
+        show_right_ui=False,  # Enable right UI for Control panel
     ) as viewer:
         mujoco.mj_resetDataKeyframe(model, data, key_id)
 
