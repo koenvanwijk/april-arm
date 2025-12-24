@@ -8,6 +8,8 @@ import mujoco
 import mujoco.viewer
 import numpy as np
 
+from april import Pose
+
 integration_dt: float = 1.0
 # Whether to enable gravity compensation.
 gravity_compensation: bool = True
@@ -142,9 +144,6 @@ def sim_loop(queue: Queue | None = None, enable_gripper_control: bool = False):
     ik_dof_ids = [model.joint(name).id for name in ik_joint_names]
     ik_actuator_ids = [model.actuator(name).id for name in ik_joint_names]
     
-    all_dof_ids = [model.joint(name).id for name in all_joint_names]
-    all_actuator_ids = [model.actuator(name).id for name in all_joint_names]
-
     # Get jaw joint ID for manual control
     jaw_dof_id = model.joint("Jaw").id
     jaw_actuator_id = model.actuator("Jaw").id
@@ -187,7 +186,7 @@ def sim_loop(queue: Queue | None = None, enable_gripper_control: bool = False):
         model=model,
         data=data,
         show_left_ui=False,
-        show_right_ui=False,  # Enable right UI for Control panel
+        show_right_ui=True,  # Enable right UI for Control panel
     ) as viewer:
         mujoco.mj_resetDataKeyframe(model, data, key_id)
 
@@ -207,6 +206,11 @@ def sim_loop(queue: Queue | None = None, enable_gripper_control: bool = False):
         
         # Initialize wrist roll target
         wrist_roll_target = 0.0
+        
+        # Track initial positions for delta calculation
+        initial_pose = None
+        initial_mocap_pos = data.mocap_pos[mocap_id].copy()
+        latest_pose = None
 
         while viewer.is_running():
             step_start = time.time()
@@ -219,7 +223,15 @@ def sim_loop(queue: Queue | None = None, enable_gripper_control: bool = False):
             if queue is not None:
                 try:
                     latest_pose = queue.get_nowait()
-                    data.mocap_pos[mocap_id] += latest_pose.pos
+                    
+                    # Initialize on first pose
+                    if initial_pose is None:
+                        initial_pose = Pose(latest_pose.pos.copy(), latest_pose.quat.copy(), latest_pose.yaw)
+                        print(f"✓ Initial cube pose captured at [{initial_pose.pos[0]:.3f}, {initial_pose.pos[1]:.3f}, {initial_pose.pos[2]:.3f}]")
+                    
+                    # Calculate delta and update mocap (absolute position with delta tracking)
+                    cube_delta = latest_pose.pos - initial_pose.pos
+                    data.mocap_pos[mocap_id] = initial_mocap_pos + cube_delta
                     
                     # Update wrist roll target with yaw angle from cube
                     wrist_roll_target = latest_pose.yaw

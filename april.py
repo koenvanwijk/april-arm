@@ -472,7 +472,8 @@ def vision_loop(q: Queue | None, calib="camera.npz"):
                         q.get_nowait()  # drop stale message
                     except Empty:
                         pass
-                    q.put(Pose(d_pos_mujoco, quat=pose.quat, yaw=pose.yaw))
+                    # Send absolute position, not delta!
+                    q.put(Pose(pose.pos, quat=pose.quat, yaw=pose.yaw))
 
         if pose is not None:
             prev_pos = pose.pos  # update history
