@@ -9,5 +9,7 @@ wheels/
 # Virtual environments
 .venv
 calibration_images/*
-calibrated_offsets.txt
-photos/*
+camera.npz
+cube_offsets.npz
+table_plane.npz
+photos/

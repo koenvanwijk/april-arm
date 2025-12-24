@@ -27,27 +27,32 @@ CAMERA_ROTATION = np.load('camera_rotation.npz')['rotation_matrix']
 cube_length = 0.05
 cube_half = cube_length / 2
 
-# this trans_offset is updated by the calibrate cube script
-
-trans_offset = {  # tag frame → cube-COM translation (metres)
-    0: np.array([0.000000, 0.000000, -0.025000]),
-    1: np.array([-0.011026, 0.003969, -0.034302]),
-    2: np.array([0.002348, -0.001864, -0.029412]),
-    3: np.array([-0.001859, 0.001301, -0.028630]),
-    4: np.array([-0.002749, 0.001517, -0.027374]),
-    5: np.array([-0.008780, 0.005476, -0.033904]),
-}
-
-# this rot_offset is updated by the calibrate cube script
-
-rot_offset = {
-    0: np.eye(3),
-    1: R.from_euler('xyz', [-178.1, -3.8, -177.7], degrees=True).as_matrix(),
-    2: R.from_euler('xyz', [129.6, -88.4, -128.3], degrees=True).as_matrix(),
-    3: R.from_euler('xyz', [-149.8, 88.8, -150.7], degrees=True).as_matrix(),
-    4: R.from_euler('xyz', [91.2, 0.9, 1.0], degrees=True).as_matrix(),
-    5: R.from_euler('xyz', [-90.7, -1.7, 179.2], degrees=True).as_matrix(),
-}
+# Cube offsets: load from calibration file or use defaults
+try:
+    cube_offsets_data = np.load("cube_offsets.npz", allow_pickle=True)
+    trans_offset = cube_offsets_data['trans_offset'].item()
+    rot_offset = cube_offsets_data['rot_offset'].item()
+    print(f"✓ Loaded cube offsets from cube_offsets.npz")
+except FileNotFoundError:
+    # Default offsets (tag frame → cube-COM)
+    trans_offset = {
+        0: np.array([0.000000, 0.000000, -0.025000]),
+        1: np.array([-0.000400, -0.001444, -0.024548]),
+        2: np.array([-0.001020, -0.001139, -0.027475]),
+        3: np.array([0.003198, 0.001266, -0.023672]),
+        4: np.array([-0.006244, -0.004858, -0.023419]),
+        5: np.array([0.000696, -0.001491, -0.027059]),
+    }
+    
+    rot_offset = {
+        0: np.eye(3),
+        1: R.from_euler('xyz', [-179.4, 1.4, 179.9], degrees=True).as_matrix(),
+        2: R.from_euler('xyz', [177.8, -89.2, -178.6], degrees=True).as_matrix(),
+        3: R.from_euler('xyz', [-155.2, 88.0, -155.2], degrees=True).as_matrix(),
+        4: R.from_euler('xyz', [89.7, 3.7, 3.0], degrees=True).as_matrix(),
+        5: R.from_euler('xyz', [-91.1, 0.2, 179.4], degrees=True).as_matrix(),
+    }
+    print(f"Using default cube offsets (run calibrate_cube.py to calibrate)")
 
 
 
@@ -317,9 +322,14 @@ def detect_and_draw(
 
 
 # ---------- live loop ------------------------------------------------------
-def vision_loop(q: Queue | None, calib="calib.npz"):
-    data = np.load(calib)
-    K, D = data["mtx"], data["dist"]
+def vision_loop(q: Queue | None, calib="camera.npz"):
+    try:
+        data = np.load(calib)
+        K, D = data["mtx"], data["dist"]
+    except FileNotFoundError:
+        print(f"❌ Camera calibration file '{calib}' not found!")
+        print("   Run: python calibrate_camera.py")
+        sys.exit(1)
     
     # Table plane calibration: collect multiple points to define the table plane
     # Plane equation: ax + by + cz + d = 0, or n·p + d = 0 where n is normal

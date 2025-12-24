@@ -134,8 +134,9 @@ python mujoco_loop.py    # MuJoCo simulation only
 - `calibrate_camera.py` - Interactive camera calibration with live preview
 - `calibrate.py` - Batch camera calibration from photos (legacy)
 - `calibrate_cube.py` - Optimize AprilTag offsets on cube (optional, for better accuracy)
-- `calib.npz` - Camera intrinsics (focal length, distortion)
+- `camera.npz` - Camera intrinsics (focal length, distortion)
 - `table_plane.npz` - Table plane parameters (normal, offset)
+- `cube_offsets.npz` - Per-tag rotation/translation offsets (from calibrate_cube.py)
 
 **Assets**:
 - `assets/` - 3D printable STL files for cube controller

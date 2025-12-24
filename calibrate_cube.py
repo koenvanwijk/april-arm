@@ -15,8 +15,13 @@ import threading
 from april import TAG_FAMILY, MARKER_SIZE, CAM_ID, STEREO_CAM, USE_STEREO, estimate_pose
 
 # Load calibration
-calib = np.load("calib.npz")
-mtx, dist = calib["mtx"], calib["dist"]
+try:
+    calib = np.load("camera.npz")
+    mtx, dist = calib["mtx"], calib["dist"]
+except FileNotFoundError:
+    print("❌ Camera calibration not found!")
+    print("   Run: python calibrate_camera.py")
+    sys.exit(1)
 
 # Store observations: list of (frame_data)
 # where frame_data = {tid: (tvec, rvec)}
@@ -254,58 +259,26 @@ def compute_offsets_optimized(observations, optimize_camera=True):
         return None, None, None, None
 
 def save_and_update(rot_offset, trans_offset, K_new=None, D_new=None):
-    """Save and update april.py and optionally calib.npz."""
+    """Save cube offsets and optionally update camera calibration."""
     
     # Save camera calibration if provided
     if K_new is not None and D_new is not None:
-        np.savez("calib.npz", mtx=K_new, dist=D_new)
-        print("💾 Updated calib.npz with refined camera parameters")
+        np.savez("camera.npz", mtx=K_new, dist=D_new)
+        print("💾 Updated camera.npz with refined camera parameters")
     
-    # Update april.py with offsets
-    try:
-        with open("april.py", "r") as f:
-            content = f.read()
-        
-        # Replace trans_offset
-        trans_lines = ["trans_offset = {  # tag frame → cube-COM translation (metres)\n"]
-        for tid in sorted(trans_offset.keys()):
-            t = trans_offset[tid]
-            trans_lines.append(f"    {tid}: np.array([{t[0]:.6f}, {t[1]:.6f}, {t[2]:.6f}]),\n")
-        trans_lines.append("}\n")
-        
-        # Replace rot_offset
-        rot_lines = ["rot_offset = {\n"]
-        for tid in sorted(rot_offset.keys()):
-            R_mat = rot_offset[tid]
-            if np.allclose(R_mat, np.eye(3)):
-                rot_lines.append(f"    {tid}: np.eye(3),\n")
-            else:
-                euler = R.from_matrix(R_mat).as_euler('xyz', degrees=True)
-                rot_lines.append(f"    {tid}: R.from_euler('xyz', [{euler[0]:.1f}, {euler[1]:.1f}, {euler[2]:.1f}], degrees=True).as_matrix(),\n")
-        rot_lines.append("}\n")
-        
-        # Find and replace sections
-        import re
-        
-        # Replace trans_offset
-        pattern = r'trans_offset = \{[^}]*\}'
-        replacement = ''.join(trans_lines).rstrip()
-        content = re.sub(pattern, replacement, content, flags=re.DOTALL)
-        
-        # Replace rot_offset
-        pattern = r'rot_offset = \{[^}]*\}'
-        replacement = ''.join(rot_lines).rstrip()
-        content = re.sub(pattern, replacement, content, flags=re.DOTALL)
-        
-        with open("april.py", "w") as f:
-            f.write(content)
-        
-        print("✓ Updated april.py")
-        return True
-        
-    except Exception as e:
-        print(f"⚠️  Could not update april.py: {e}")
-        return False
+    # Save cube offsets to file
+    np.savez("cube_offsets.npz", trans_offset=trans_offset, rot_offset=rot_offset)
+    print("💾 Saved cube offsets to cube_offsets.npz")
+    
+    # Print summary
+    print("\nOffset summary:")
+    for tid in sorted(trans_offset.keys()):
+        print(f"  Tag {tid}:")
+        euler = R.from_matrix(rot_offset[tid]).as_euler('xyz', degrees=True)
+        print(f"    Rotation: [{euler[0]:.1f}, {euler[1]:.1f}, {euler[2]:.1f}]°")
+        print(f"    Translation: [{trans_offset[tid][0]*1000:.2f}, {trans_offset[tid][1]*1000:.2f}, {trans_offset[tid][2]*1000:.2f}] mm")
+    
+    return True
 
 # Setup
 if USE_STEREO and STEREO_CAM:

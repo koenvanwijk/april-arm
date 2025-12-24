@@ -142,8 +142,8 @@ while True:
             print(f"  Principal point: cx={mtx[0,2]:.1f}, cy={mtx[1,2]:.1f}")
             
             # Save
-            np.savez("calib.npz", mtx=mtx, dist=dist)
-            print(f"✓ Saved to calib.npz")
+            np.savez("camera.npz", mtx=mtx, dist=dist)
+            print(f"✓ Saved to camera.npz")
             
             # Save example images
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
