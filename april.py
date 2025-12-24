@@ -13,14 +13,8 @@ from scipy.spatial.transform import Rotation as R
 
 # ---------- constants ------------------------------------------------------
 TAG_FAMILY = cv2.aruco.DICT_APRILTAG_16h5
-MARKER_SIZE = 0.046  # 30 mm
+MARKER_SIZE = 0.046  # 46 mm
 CAM_ID = 0
-STEREO_CAM = "/dev/videostereo223"  # Stereo camera device path (or None to disable)
-USE_STEREO = False  # Set to True to enable stereo cameraSTEREO_BASELINE = 0.06  # Distance between stereo cameras in meters (adjust for your setup)
-# Camera pose relative to world frame (camera positioned behind robot)
-# Camera behind robot looking forward, slightly angled down
-# Estimated tilt angle (adjust based on your setup)
-CAMERA_TILT_DEGREES = 34  # Camera looks down at this angle
 
 CAMERA_ROTATION = np.load('camera_rotation.npz')['rotation_matrix']
 # ---------- cube geometry --------------------------------------------------
@@ -345,27 +339,8 @@ def vision_loop(q: Queue | None, calib="camera.npz"):
     except FileNotFoundError:
         print(f"No table plane calibration found. Move cube and press 'c' to calibrate.")
     
-    # Open camera(s)
-    if USE_STEREO and STEREO_CAM:
-        # Try stereo camera first
-        cap = cv2.VideoCapture(STEREO_CAM)
-        if not cap.isOpened():
-            print(f"⚠️  Stereo camera {STEREO_CAM} not found, falling back to CAM_ID={CAM_ID}")
-            cap = cv2.VideoCapture(CAM_ID)
-        else:
-            print(f"✓ Using stereo camera: {STEREO_CAM}")
-            # Set MJPEG compression for better framerate
-            cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc('M', 'J', 'P', 'G'))
-            # Set stereo resolution (2x width for side-by-side)
-            cap.set(cv2.CAP_PROP_FRAME_WIDTH, 2560)
-            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
-            cap.set(cv2.CAP_PROP_FPS, 30)
-            actual_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-            actual_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-            actual_fps = int(cap.get(cv2.CAP_PROP_FPS))
-            print(f"  Resolution: {actual_w}x{actual_h} @ {actual_fps}fps")
-    else:
-        cap = cv2.VideoCapture(CAM_ID)
+    # Open camera
+    cap = cv2.VideoCapture(CAM_ID)
     
     if not cap.isOpened():
         sys.exit("No webcam")
