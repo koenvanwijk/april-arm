@@ -265,9 +265,13 @@ def save_and_update(rot_offset, trans_offset, K_new=None, D_new=None):
         np.savez("camera.npz", mtx=K_new, dist=D_new)
         print("💾 Updated camera.npz with refined camera parameters")
     
-    # Save cube offsets to file
-    np.savez("cube_offsets.npz", trans_offset=trans_offset, rot_offset=rot_offset)
-    print("💾 Saved cube offsets to cube_offsets.npz")
+    # Save cube offsets to file (secure format without pickle)
+    save_data = {}
+    for tag_id in trans_offset.keys():
+        save_data[f'trans_{tag_id}'] = trans_offset[tag_id]
+        save_data[f'rot_{tag_id}'] = rot_offset[tag_id]
+    np.savez("cube_offsets.npz", **save_data)
+    print("💾 Saved cube offsets to cube_offsets.npz (secure format)")
     
     # Print summary
     print("\nOffset summary:")

@@ -36,10 +36,17 @@ cube_half = cube_length / 2
 
 # Cube offsets: load from calibration file or use defaults
 try:
-    cube_offsets_data = np.load("cube_offsets.npz", allow_pickle=True)
-    trans_offset = cube_offsets_data['trans_offset'].item()
-    rot_offset = cube_offsets_data['rot_offset'].item()
-    print(f"✓ Loaded cube offsets from cube_offsets.npz")
+    cube_offsets_data = np.load("cube_offsets.npz")
+    # Load individual tag offsets (secure format without pickle)
+    trans_offset = {}
+    rot_offset = {}
+    for tag_id in range(6):
+        trans_key = f'trans_{tag_id}'
+        rot_key = f'rot_{tag_id}'
+        if trans_key in cube_offsets_data and rot_key in cube_offsets_data:
+            trans_offset[tag_id] = cube_offsets_data[trans_key]
+            rot_offset[tag_id] = cube_offsets_data[rot_key]
+    print(f"✓ Loaded cube offsets from cube_offsets.npz (secure format)")
 except FileNotFoundError:
     # Default offsets (tag frame → cube-COM)
     trans_offset = {
